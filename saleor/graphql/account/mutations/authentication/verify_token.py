@@ -1,13 +1,16 @@
 import graphene
+import jwt
 from django.core.exceptions import ValidationError
 from graphene.types.generic import GenericScalar
 
+from .....account.error_codes import AccountErrorCode
+from .....core.jwt import get_user_from_access_payload
 from ....core import ResolveInfo
 from ....core.doc_category import DOC_CATEGORY_AUTH
 from ....core.mutations import BaseMutation
 from ....core.types import AccountError
 from ...types import User
-from .utils import get_payload, get_user
+from .utils import get_payload
 
 
 class VerifyToken(BaseMutation):
@@ -40,10 +43,30 @@ class VerifyToken(BaseMutation):
 
     @classmethod
     def get_user(cls, payload):
+        """Resolve the token's user, accepting only access (or thirdparty) tokens.
+
+        A refresh token must never verify here -- it carries a longer lifetime
+        and is meant only for the `tokenRefresh` flow, not as proof of a live
+        authenticated session.
+        """
         try:
-            user = get_user(payload)
-        except ValidationError as e:
-            raise ValidationError({"token": e}) from e
+            user = get_user_from_access_payload(payload)
+        except jwt.InvalidTokenError as e:
+            raise ValidationError(
+                {
+                    "token": ValidationError(
+                        str(e), code=AccountErrorCode.JWT_INVALID_TOKEN.value
+                    )
+                }
+            ) from e
+        if not user:
+            raise ValidationError(
+                {
+                    "token": ValidationError(
+                        "Invalid token", code=AccountErrorCode.JWT_INVALID_TOKEN.value
+                    )
+                }
+            )
         return user
 
     @classmethod

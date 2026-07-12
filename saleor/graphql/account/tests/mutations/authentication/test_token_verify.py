@@ -3,6 +3,7 @@ from ......core.jwt import (
     PERMISSIONS_FIELD,
     create_access_token,
     create_access_token_for_app,
+    create_refresh_token,
 )
 from .....tests.utils import get_graphql_content
 
@@ -73,6 +74,25 @@ def test_verify_token_incorrect_token(api_client):
     assert errors[0]["code"] == AccountErrorCode.JWT_DECODE_ERROR.name
     assert data["isValid"] is False
     assert not data["user"]
+
+
+def test_verify_token_rejects_refresh_token(api_client, customer_user):
+    """A refresh token must not verify as a valid authenticated session token.
+
+    Only access (or thirdparty-access) tokens are meant to confirm a live
+    session; accepting a refresh token here would let a caller who only holds
+    a refresh token be treated as holding a valid access session.
+    """
+    variables = {"token": create_refresh_token(customer_user)}
+    response = api_client.post_graphql(MUTATION_TOKEN_VERIFY, variables)
+    content = get_graphql_content(response)
+    data = content["data"]["tokenVerify"]
+    errors = data["errors"]
+
+    assert data["isValid"] is False
+    assert not data["user"]
+    assert len(errors) == 1
+    assert errors[0]["code"] == AccountErrorCode.JWT_INVALID_TOKEN.name
 
 
 def test_verify_token_invalidated_by_user(api_client, customer_user):
