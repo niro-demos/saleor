@@ -71,6 +71,59 @@ def test_webhook_create_by_app(app_api_client, permission_manage_orders):
     assert events[0].event_type == WebhookEventTypeAsyncEnum.ORDER_CREATED.value
 
 
+def test_webhook_create_secret_key_not_disclosed_in_response(
+    app_api_client, permission_manage_orders
+):
+    """Assert a webhook's HMAC signing key is never echoed back on create.
+
+    The secretKey a caller submits at creation must not be echoed back in
+    the mutation response, since the secret is already committed to the DB
+    by that point and returning it needlessly widens who can observe the
+    plaintext HMAC signing key.
+    """
+    # given
+    query = """
+        mutation webhookCreate($input: WebhookCreateInput!){
+          webhookCreate(input: $input) {
+            errors {
+              field
+              message
+              code
+            }
+            webhook {
+              id
+              secretKey
+            }
+          }
+        }
+    """
+    secret_key = "super-secret-hmac-key"
+    variables = {
+        "input": {
+            "name": "New integration",
+            "targetUrl": "https://www.example.com",
+            "asyncEvents": [WebhookEventTypeAsyncEnum.ORDER_CREATED.name],
+            "secretKey": secret_key,
+        }
+    }
+
+    # when
+    response = app_api_client.post_graphql(
+        query,
+        variables=variables,
+        permissions=[permission_manage_orders],
+        check_no_permissions=False,
+    )
+    content = get_graphql_content(response)
+
+    # then
+    data = content["data"]["webhookCreate"]
+    assert not data["errors"]
+    new_webhook = Webhook.objects.get()
+    assert new_webhook.secret_key == secret_key
+    assert data["webhook"]["secretKey"] is None
+
+
 def test_webhook_create_inactive_app(app_api_client, app, permission_manage_orders):
     # given
     app.is_active = False

@@ -11,6 +11,7 @@ from ..core.connection import (
     filter_connection_queryset,
 )
 from ..core.context import get_database_connection_name
+from ..core.descriptions import ADDED_IN_324
 from ..core.fields import FilterConnectionField, JSONString
 from ..core.scalars import DateTime
 from ..core.types import ModelObjectType, NonNullList
@@ -187,7 +188,13 @@ class Webhook(ModelObjectType[models.Webhook]):
         required=True, description="Informs if webhook is activated."
     )
     secret_key = graphene.String(
-        description="Used to create a hash signature for each payload.",
+        description=(
+            "Used to create a hash signature for each payload. "
+            "Write-only: always returns `null` on read, including immediately "
+            "after `webhookCreate`/`webhookUpdate`, to prevent the plaintext "
+            "signing key from being disclosed to anyone with `MANAGE_APPS`."
+            + ADDED_IN_324
+        ),
         deprecation_reason="As of Saleor 3.5, webhook payloads default to signing using a verifiable JWS.",
     )
     subscription_query = graphene.String(
@@ -247,3 +254,14 @@ class Webhook(ModelObjectType[models.Webhook]):
         return create_connection_slice(
             qs, info, kwargs, EventDeliveryCountableConnection
         )
+
+    @staticmethod
+    def resolve_secret_key(root: models.Webhook, _info: ResolveInfo):
+        """Never disclose the plaintext HMAC signing key on read.
+
+        The secret is write-only: it can be set via `webhookCreate`/
+        `webhookUpdate`, but is never echoed back, including in the mutation's
+        own response. Disclosing it would let any caller with `MANAGE_APPS`
+        forge valid HMAC-SHA256 signatures for fabricated webhook payloads.
+        """
+        return

@@ -1708,7 +1708,11 @@ type Webhook implements Node @doc(category: "Webhooks") {
   """Informs if webhook is activated."""
   isActive: Boolean!
 
-  """Used to create a hash signature for each payload."""
+  """
+  Used to create a hash signature for each payload. Write-only: always returns `null` on read, including immediately after `webhookCreate`/`webhookUpdate`, to prevent the plaintext signing key from being disclosed to anyone with `MANAGE_APPS`.
+  
+  Added in Saleor 3.24.
+  """
   secretKey: String @deprecated(reason: "As of Saleor 3.5, webhook payloads default to signing using a verifiable JWS.")
 
   """Used to define payloads for specific events."""

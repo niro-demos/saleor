@@ -26,6 +26,15 @@ QUERY_WEBHOOK = """
     }
 """
 
+QUERY_WEBHOOK_SECRET_KEY = """
+    query webhook($id: ID!) {
+      webhook(id: $id) {
+        id
+        secretKey
+      }
+    }
+"""
+
 
 def test_query_webhook_by_staff(staff_api_client, webhook, permission_manage_apps):
     query = QUERY_WEBHOOK
@@ -219,3 +228,31 @@ def test_webhook_without_name(
     assert webhook_response["name"] is None
     events = webhook_without_name.events.all()
     assert len(events) == 1
+
+
+def test_query_webhook_secret_key_not_disclosed_on_read(
+    staff_api_client, webhook, permission_manage_apps
+):
+    """Assert a webhook's HMAC signing key is never disclosed on read.
+
+    A staff user with MANAGE_APPS must never read back a webhook's plaintext
+    HMAC signing key, since that key would let them forge valid webhook
+    signatures for fabricated payloads.
+    """
+    # given
+    webhook.secret_key = "super-secret-hmac-key"
+    webhook.save(update_fields=["secret_key"])
+    webhook_id = graphene.Node.to_global_id("Webhook", webhook.pk)
+    variables = {"id": webhook_id}
+    staff_api_client.user.user_permissions.add(permission_manage_apps)
+
+    # when
+    response = staff_api_client.post_graphql(
+        QUERY_WEBHOOK_SECRET_KEY, variables=variables
+    )
+
+    # then
+    content = get_graphql_content(response)
+    webhook_response = content["data"]["webhook"]
+    assert webhook_response["id"] == webhook_id
+    assert webhook_response["secretKey"] is None
